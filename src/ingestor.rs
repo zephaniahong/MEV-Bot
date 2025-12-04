@@ -29,15 +29,5 @@ pub async fn start_ingestor() -> Result<()> {
         println!("TX: {:?}", tx);
     }
 
-    // let mut buffered_stream = stream.buffer_unordered(10);
-
-    // while let Some(tx_hash) = stream.next().await {
-    //     match provider.get_transaction_by_hash(tx_hash).await {
-    //         Ok(t) => println!("transaction: {t:?}"),
-    //         Err(e) => println!("err: {e}"),
-    //     }
-    //     println!("Block: {}", tx_hash);
-    // }
-
     Ok(())
 }
