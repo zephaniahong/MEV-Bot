@@ -1,6 +1,7 @@
 use anyhow::Result;
 use tracing::info;
 
+mod constants;
 mod ingestor;
 
 #[tokio::main]
