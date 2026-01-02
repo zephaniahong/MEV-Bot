@@ -1,8 +1,9 @@
-use alloy::{
-    consensus::Transaction,
-    providers::{Provider, ProviderBuilder, WsConnect},
-    sol_types::SolCall,
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
 };
+
+use alloy::{consensus::Transaction, primitives::Address, providers::Provider, sol_types::SolCall};
 use anyhow::Result;
 use futures_util::StreamExt;
 
@@ -12,14 +13,18 @@ use crate::{
         UNISWAP_V2_ROUTER,
     },
     types::{swapExactETHForTokensCall, swapExactTokensForETHCall, swapExactTokensForTokensCall},
-    utils::{calculate_pair_address, fetch_reserves, get_amount_out},
+    utils::calculate_pair_address,
 };
 
-pub async fn start_ingestor() -> Result<()> {
-    let ws_url = std::env::var("WS_URL").unwrap();
-    let ws = WsConnect::new(ws_url);
-    let provider = ProviderBuilder::new().connect_ws(ws).await?;
-
+/// Listens for pending tx and determines if there is a profitable opportunity
+pub async fn start_sniper<P>(
+    provider: P,
+    cache: Arc<RwLock<HashMap<Address, (u128, u128)>>>,
+) -> Result<()>
+where
+    P: Clone + Send + Sync + 'static,
+    P: Provider,
+{
     let sub = provider.subscribe_pending_transactions();
     let stream = sub.await?.into_stream();
 
@@ -64,17 +69,6 @@ pub async fn start_ingestor() -> Result<()> {
                                 let token_in = decoded.path[0];
                                 let token_out = decoded.path[1];
                                 let pair_address = calculate_pair_address(token_in, token_out);
-
-                                let (reserve0, reserve1) =
-                                    fetch_reserves(&provider, pair_address).await?;
-
-                                let (reserve_in, reserve_out) = if token_in < token_out {
-                                    (reserve0, reserve1)
-                                } else {
-                                    (reserve1, reserve0)
-                                };
-
-                                let amount_out = get_amount_out(amount_in, reserve_in, reserve_out);
                             }
                         }
                         Err(e) => tracing::warn!("Decode Error (ETH->Tokens): {}", e),
