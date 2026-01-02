@@ -1,7 +1,5 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
 use alloy::{consensus::Transaction, primitives::Address, providers::Provider, sol_types::SolCall};
 use anyhow::Result;
@@ -69,6 +67,14 @@ where
                                 let token_in = decoded.path[0];
                                 let token_out = decoded.path[1];
                                 let pair_address = calculate_pair_address(token_in, token_out);
+                                let reserves = {
+                                    let reader = cache.read().await;
+                                    reader.get(&pair_address).cloned()
+                                };
+
+                                if let Some((reserve0, reserve1)) = reserves {
+                                    todo!()
+                                }
                             }
                         }
                         Err(e) => tracing::warn!("Decode Error (ETH->Tokens): {}", e),
