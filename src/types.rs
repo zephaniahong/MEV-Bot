@@ -29,4 +29,7 @@ sol! {
     ) external returns (uint[] memory amounts);
 
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+
+    #[derive(Debug)]
+    event Sync(uint112 reserve0, uint112 reserve1);
 }

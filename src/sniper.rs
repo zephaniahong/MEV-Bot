@@ -1,7 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
-use alloy::{consensus::Transaction, primitives::Address, providers::Provider, sol_types::SolCall};
+use alloy::{
+    consensus::Transaction,
+    primitives::{Address, Uint},
+    providers::Provider,
+    sol_types::SolCall,
+};
 use anyhow::Result;
 use futures_util::StreamExt;
 
@@ -17,7 +22,7 @@ use crate::{
 /// Listens for pending tx and determines if there is a profitable opportunity
 pub async fn start_sniper<P>(
     provider: P,
-    cache: Arc<RwLock<HashMap<Address, (u128, u128)>>>,
+    cache: Arc<RwLock<HashMap<Address, (Uint<112, 2>, Uint<112, 2>)>>>,
 ) -> Result<()>
 where
     P: Clone + Send + Sync + 'static,
