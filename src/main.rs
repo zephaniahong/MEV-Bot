@@ -3,6 +3,8 @@ use tracing::info;
 
 mod constants;
 mod ingestor;
+mod types;
+mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {

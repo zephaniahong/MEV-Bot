@@ -1,11 +1,19 @@
 use alloy::{
     consensus::Transaction,
     providers::{Provider, ProviderBuilder, WsConnect},
+    sol_types::SolCall,
 };
 use anyhow::Result;
 use futures_util::StreamExt;
 
-use crate::constants::UNISWAP_V2_ROUTER;
+use crate::{
+    constants::{
+        SWAP_EXACT_ETH_FOR_TOKENS, SWAP_EXACT_TOKENS_FOR_ETH, SWAP_EXACT_TOKENS_FOR_TOKENS,
+        UNISWAP_V2_ROUTER,
+    },
+    types::{swapExactETHForTokensCall, swapExactTokensForETHCall, swapExactTokensForTokensCall},
+    utils::{calculate_pair_address, fetch_reserves, get_amount_out},
+};
 
 pub async fn start_ingestor() -> Result<()> {
     let ws_url = std::env::var("WS_URL").unwrap();
@@ -26,8 +34,69 @@ pub async fn start_ingestor() -> Result<()> {
         .filter_map(|res| std::future::ready(res));
 
     while let Some(tx) = buffered_stream.next().await {
-        println!("TX: {:?}", tx);
-    }
+        let tx_data = tx.input();
+        if tx_data.len() >= 4 {
+            let selector = &tx_data[0..4];
 
+            match selector {
+                x if x == SWAP_EXACT_TOKENS_FOR_TOKENS => {
+                    match swapExactTokensForTokensCall::abi_decode(tx_data) {
+                        Ok(decoded) => {
+                            println!(
+                                "🦄 Token->Token | Path: {:?} | In: {}",
+                                decoded.path, decoded.amountIn
+                            );
+                        }
+                        Err(e) => tracing::warn!("Decode Error (Tokens->Tokens): {}", e),
+                    }
+                }
+
+                x if x == SWAP_EXACT_ETH_FOR_TOKENS => {
+                    match swapExactETHForTokensCall::abi_decode(tx_data) {
+                        Ok(decoded) => {
+                            let amount_in = tx.value();
+                            println!(
+                                "🦄 ETH->Token | Path: {:?} | In (ETH): {}",
+                                decoded.path, amount_in
+                            );
+
+                            if decoded.path.len() >= 2 {
+                                let token_in = decoded.path[0];
+                                let token_out = decoded.path[1];
+                                let pair_address = calculate_pair_address(token_in, token_out);
+
+                                let (reserve0, reserve1) =
+                                    fetch_reserves(&provider, pair_address).await?;
+
+                                let (reserve_in, reserve_out) = if token_in < token_out {
+                                    (reserve0, reserve1)
+                                } else {
+                                    (reserve1, reserve0)
+                                };
+
+                                let amount_out = get_amount_out(amount_in, reserve_in, reserve_out);
+                            }
+                        }
+                        Err(e) => tracing::warn!("Decode Error (ETH->Tokens): {}", e),
+                    }
+                }
+
+                x if x == SWAP_EXACT_TOKENS_FOR_ETH => {
+                    match swapExactTokensForETHCall::abi_decode(tx_data) {
+                        Ok(decoded) => {
+                            println!(
+                                "🦄 Token->ETH | Path: {:?} | In: {}",
+                                decoded.path, decoded.amountIn
+                            );
+                        }
+                        Err(e) => tracing::warn!("Decode Error (Tokens->ETH): {}", e),
+                    }
+                }
+                _ => {
+                    println!("ignore");
+                }
+            }
+        }
+    }
     Ok(())
 }
