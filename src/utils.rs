@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{Address, U256, keccak256},
+    primitives::{Address, U256, aliases::U112, keccak256},
     providers::Provider,
     rpc::types::TransactionRequest,
     sol_types::SolCall,
@@ -93,20 +93,13 @@ pub fn calculate_pair_address(token_a: Address, token_b: Address) -> Address {
 /// # Returns
 ///
 /// * `U256` - The amount of output tokens the user will receive.
-///
-/// # Panics
-///
-/// Panics if `amount_in` is zero or if reserves are zero.
 pub fn get_amount_out(amount_in: U256, reserve_in: U256, reserve_out: U256) -> U256 {
-    if amount_in == U256::ZERO || reserve_in == U256::ZERO || reserve_out == U256::ZERO {
-        panic!("get_amount_out: Insufficient input or liquidity");
-    }
+    let amount_in_with_fee = amount_in * get_uniswappy_fee();
+    let numerator = amount_in_with_fee * reserve_out;
+    let denominator = reserve_in * U256::from(1000) + amount_in_with_fee;
+    numerator / denominator
+}
 
-    let amount_in_with_fee = amount_in.checked_mul(U256::from(997)).unwrap();
-    let numerator = amount_in_with_fee.checked_mul(reserve_out).unwrap();
-
-    let denominator_reserve = reserve_in.checked_mul(U256::from(1000)).unwrap();
-    let denominator = denominator_reserve.checked_add(amount_in_with_fee).unwrap();
-
-    numerator.checked_div(denominator).unwrap()
+pub fn get_uniswappy_fee() -> U256 {
+    U256::from(997)
 }

@@ -3,7 +3,7 @@ use tokio::sync::RwLock;
 
 use alloy::{
     consensus::Transaction,
-    primitives::{Address, Uint},
+    primitives::{Address, U256},
     providers::Provider,
     sol_types::SolCall,
 };
@@ -11,19 +11,17 @@ use anyhow::Result;
 use futures_util::StreamExt;
 
 use crate::{
+    Pool,
     constants::{
         SWAP_EXACT_ETH_FOR_TOKENS, SWAP_EXACT_TOKENS_FOR_ETH, SWAP_EXACT_TOKENS_FOR_TOKENS,
         UNISWAP_V2_ROUTER,
     },
     types::{swapExactETHForTokensCall, swapExactTokensForETHCall, swapExactTokensForTokensCall},
-    utils::calculate_pair_address,
+    utils::{calculate_pair_address, get_amount_out},
 };
 
 /// Listens for pending tx and determines if there is a profitable opportunity
-pub async fn start_sniper<P>(
-    provider: P,
-    cache: Arc<RwLock<HashMap<Address, (Uint<112, 2>, Uint<112, 2>)>>>,
-) -> Result<()>
+pub async fn start_sniper<P>(provider: P, cache: Arc<RwLock<HashMap<Address, Pool>>>) -> Result<()>
 where
     P: Clone + Send + Sync + 'static,
     P: Provider,
@@ -32,12 +30,15 @@ where
     let stream = sub.await?.into_stream();
 
     let mut buffered_stream = stream
-        .map(
-            async |tx_hash| match provider.get_transaction_by_hash(tx_hash).await {
-                Ok(Some(tx)) if tx.to() == Some(UNISWAP_V2_ROUTER) => Some(tx),
-                _ => None,
-            },
-        )
+        .map(|tx_hash| {
+            let provider = provider.clone();
+            async move {
+                match provider.get_transaction_by_hash(tx_hash).await {
+                    Ok(Some(tx)) if tx.to() == Some(UNISWAP_V2_ROUTER) => Some(tx),
+                    _ => None,
+                }
+            }
+        })
         .buffer_unordered(10)
         .filter_map(|res| std::future::ready(res));
 
@@ -76,10 +77,6 @@ where
                                     let reader = cache.read().await;
                                     reader.get(&pair_address).cloned()
                                 };
-
-                                if let Some((reserve0, reserve1)) = reserves {
-                                    todo!()
-                                }
                             }
                         }
                         Err(e) => tracing::warn!("Decode Error (ETH->Tokens): {}", e),

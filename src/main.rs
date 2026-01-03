@@ -1,9 +1,9 @@
 use futures_util::StreamExt;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Add, sync::Arc};
 use tokio::sync::RwLock;
 
 use alloy::{
-    primitives::{Address, Uint, address},
+    primitives::{Address, U256, address},
     providers::{Provider, ProviderBuilder, WsConnect},
     rpc::types::Filter,
     sol_types::SolEvent,
@@ -11,7 +11,7 @@ use alloy::{
 use anyhow::Result;
 use tracing::{error, info};
 
-use crate::types::Sync;
+use crate::types::{IUniswapV2Pair, Sync};
 
 mod constants;
 mod sniper;
@@ -20,8 +20,8 @@ mod utils;
 
 async fn state_updater<P>(
     provider: P,
-    cache: Arc<RwLock<HashMap<Address, (Uint<112, 2>, Uint<112, 2>)>>>,
-    pair_address: Address,
+    cache: Arc<RwLock<HashMap<Address, Pool>>>,
+    pool: Pool,
 ) -> Result<()>
 where
     P: Clone + Send + core::marker::Sync + 'static,
@@ -30,29 +30,58 @@ where
     let latest_block = provider.get_block_number().await?;
     let filter = Filter::new()
         .event(Sync::SIGNATURE)
-        .address(pair_address)
+        .address(pool.address)
         .from_block(latest_block);
 
     let sub = provider.subscribe_logs(&filter).await?;
     let mut stream = sub.into_stream();
 
     while let Some(log) = stream.next().await {
+        let pool_clone = pool.clone();
         match log.log_decode::<Sync>() {
             Ok(decoded) => {
                 let data = decoded.data();
                 let mut guard = cache.write().await;
-                guard.insert(pair_address, (data.reserve0, data.reserve1));
-                info!(
-                    "Inserted {:?} for {}",
-                    (data.reserve0, data.reserve1),
-                    pair_address
-                );
+                if let Some(val) = guard.get_mut(&pool_clone.address) {
+                    val.reserve0 = U256::from(data.reserve0);
+                    val.reserve1 = U256::from(data.reserve1);
+                } else {
+                    guard.insert(pool.address, pool_clone);
+                }
+                info!("Inserted {:?}", pool);
             }
             Err(e) => error!("Decode error: {e:?}, raw log: {log:?}"),
         }
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct Pool {
+    address: Address,
+    token0: Address,
+    token1: Address,
+    reserve0: U256,
+    reserve1: U256,
+}
+
+impl Pool {
+    pub fn new(
+        address: Address,
+        token0: Address,
+        token1: Address,
+        reserve0: U256,
+        reserve1: U256,
+    ) -> Self {
+        Self {
+            address,
+            token0,
+            token1,
+            reserve0,
+            reserve1,
+        }
+    }
 }
 
 #[tokio::main]
@@ -71,8 +100,14 @@ async fn main() -> Result<()> {
         let provider_clone = provider.clone();
         let cache_clone = cache.clone();
         let usdc_weth_address = address!("0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc");
+        let pair = IUniswapV2Pair::new(usdc_weth_address, provider_clone.clone());
+        let token0 = Address::from(pair.token0().call().await?.0);
+        let token1 = Address::from(pair.token1().call().await?.0);
+        let reserve0 = U256::from(pair.getReserves().call().await?.reserve0);
+        let reserve1 = U256::from(pair.getReserves().call().await?.reserve1);
+        let pool = Pool::new(usdc_weth_address, token0, token1, reserve0, reserve1);
         tokio::spawn(async move {
-            if let Err(e) = state_updater(provider_clone, cache_clone, usdc_weth_address).await {
+            if let Err(e) = state_updater(provider_clone, cache_clone, pool).await {
                 error!("Error updating state: {e}");
             }
         });
