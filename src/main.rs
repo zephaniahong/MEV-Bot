@@ -11,7 +11,10 @@ use alloy::{
 use anyhow::Result;
 use tracing::{error, info};
 
-use crate::types::{IUniswapV2Pair, Sync};
+use crate::{
+    types::{IUniswapV2Pair, Sync},
+    utils::calculate_pair_address,
+};
 
 mod constants;
 mod sniper;
@@ -100,12 +103,16 @@ async fn main() -> Result<()> {
         let provider_clone = provider.clone();
         let cache_clone = cache.clone();
         let usdc_weth_address = address!("0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc");
-        let pair = IUniswapV2Pair::new(usdc_weth_address, provider_clone.clone());
+        let add = calculate_pair_address(
+            address!("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+            address!("0x2581ceba70876dae5c8b00472f9633ef1428baa1"),
+        );
+        let pair = IUniswapV2Pair::new(add, provider_clone.clone());
         let token0 = Address::from(pair.token0().call().await?.0);
         let token1 = Address::from(pair.token1().call().await?.0);
         let reserve0 = U256::from(pair.getReserves().call().await?.reserve0);
         let reserve1 = U256::from(pair.getReserves().call().await?.reserve1);
-        let pool = Pool::new(usdc_weth_address, token0, token1, reserve0, reserve1);
+        let pool = Pool::new(add, token0, token1, reserve0, reserve1);
         tokio::spawn(async move {
             if let Err(e) = state_updater(provider_clone, cache_clone, pool).await {
                 error!("Error updating state: {e}");

@@ -9,6 +9,7 @@ use alloy::{
 };
 use anyhow::Result;
 use futures_util::StreamExt;
+use tracing::{error, info, warn};
 
 use crate::{
     Pool,
@@ -51,10 +52,11 @@ where
                 x if x == SWAP_EXACT_TOKENS_FOR_TOKENS => {
                     match swapExactTokensForTokensCall::abi_decode(tx_data) {
                         Ok(decoded) => {
-                            println!(
-                                "🦄 Token->Token | Path: {:?} | In: {}",
-                                decoded.path, decoded.amountIn
-                            );
+                            // println!(
+                            //     "🦄 Token->Token | Path: {:?} | In: {}",
+                            //     decoded.path, decoded.amountIn
+                            // );
+                            println!("ignore")
                         }
                         Err(e) => tracing::warn!("Decode Error (Tokens->Tokens): {}", e),
                     }
@@ -73,23 +75,51 @@ where
                                 let token_in = decoded.path[0];
                                 let token_out = decoded.path[1];
                                 let pair_address = calculate_pair_address(token_in, token_out);
-                                let reserves = {
+                                let pool = {
                                     let reader = cache.read().await;
                                     reader.get(&pair_address).cloned()
                                 };
+
+                                if let Some(pool) = pool {
+                                    let reserve0 = pool.reserve0;
+                                    let reserve1 = pool.reserve1;
+                                    // (reserve_in, reserve_out)
+                                    let reserves = if pool.token0 == token_in {
+                                        (reserve0, reserve1)
+                                    } else {
+                                        (reserve1, reserve0)
+                                    };
+                                    let amount_out =
+                                        get_amount_out(amount_in, reserves.0, reserves.1);
+
+                                    let price_before =
+                                        f64::from(reserves.0) / f64::from(reserves.1);
+
+                                    let price_after = ((f64::from(reserves.0)
+                                        + f64::from(amount_in))
+                                        * f64::from(997)
+                                        / f64::from(1000))
+                                        / (f64::from(reserves.1) - f64::from(amount_out));
+
+                                    let impact = (price_after - price_before) / price_before;
+                                    if impact >= 0.05 {
+                                        info!("🚨HIGH IMPACT: {impact}");
+                                    }
+                                }
                             }
                         }
-                        Err(e) => tracing::warn!("Decode Error (ETH->Tokens): {}", e),
+                        Err(e) => warn!("Decode Error (ETH->Tokens): {}", e),
                     }
                 }
 
                 x if x == SWAP_EXACT_TOKENS_FOR_ETH => {
                     match swapExactTokensForETHCall::abi_decode(tx_data) {
                         Ok(decoded) => {
-                            println!(
-                                "🦄 Token->ETH | Path: {:?} | In: {}",
-                                decoded.path, decoded.amountIn
-                            );
+                            // println!(
+                            //     "🦄 Token->ETH | Path: {:?} | In: {}",
+                            //     decoded.path, decoded.amountIn
+                            // );
+                            println!("ignore");
                         }
                         Err(e) => tracing::warn!("Decode Error (Tokens->ETH): {}", e),
                     }
